@@ -50,9 +50,8 @@ export async function updateUserRole(formData: FormData) {
   const { error } = await supabase
     .from('profiles').update({ role }).eq('id', profileId)
 
-  if (error) return { error: error.message }
+  if (error) throw new Error(error.message)
   revalidatePath('/admin')
-  return { success: true }
 }
 
 export async function toggleUserActive(formData: FormData) {
@@ -64,5 +63,4 @@ export async function toggleUserActive(formData: FormData) {
   await supabase.from('profiles').update({ is_active: !isActive }).eq('id', profileId)
 
   revalidatePath('/admin')
-  return { success: true }
 }
