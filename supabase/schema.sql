@@ -312,17 +312,27 @@ create table equipment_states (
 -- ============================================================
 -- 6. SAFETY & PERMITS
 -- ============================================================
-create type permit_status as enum ('pending', 'approved', 'active', 'closed', 'rejected');
+create type permit_status as enum ('pending', 'approved', 'active', 'rejected', 'expired', 'closed');
+create type permit_type   as enum ('hot_work', 'cold_work', 'confined_space', 'electrical', 'height', 'chemical', 'general');
+
+create sequence work_permit_seq start 1;
 
 create table work_permits (
   id                uuid primary key default uuid_generate_v4(),
   plant_id          uuid references plants(id),
-  permit_number     text unique not null,
+  permit_number     text unique not null default ('WP-' || extract(year from now())::text || '-' || lpad(nextval('work_permit_seq')::text, 4, '0')),
+  permit_type       permit_type not null default 'general',
+  title             text not null,
   work_description  text not null,
   location          text,
+  hazards           text,
+  precautions       text,
+  ppe_required      text[],
   requested_by      uuid references profiles(id),
   approved_by       uuid references profiles(id),
-  status            permit_status default 'pending',
+  closed_by         uuid references profiles(id),
+  rejection_reason  text,
+  status            permit_status not null default 'pending',
   valid_from        timestamptz,
   valid_until       timestamptz,
   created_at        timestamptz default now(),

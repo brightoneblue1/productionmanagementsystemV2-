@@ -7,7 +7,7 @@ import {
   LayoutDashboard, Briefcase, AlertTriangle,
   ClipboardList, Users, FileBarChart2, Layers,
   Factory, FlaskConical, ChevronDown, ChevronRight,
-  ShieldCheck, Wrench, Gauge, BookOpen,
+  ShieldCheck, Wrench, Gauge, BookOpen, FileText,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 
@@ -19,6 +19,8 @@ const TOP_NAV = [
   { href: '/problems',       label: 'Problems',          icon: AlertTriangle,   roles: ['admin','supervisor','operator','tank_filler'] },
   { href: '/reports',        label: 'Reports',            icon: ClipboardList,   roles: ['admin','supervisor','operator','kapa'] },
   { href: '/procedures',     label: 'Procedures',         icon: BookOpen,        roles: ['admin','supervisor','operator'] },
+  { href: '/permits',        label: 'Work Permits',       icon: FileText,        roles: ['admin','supervisor','operator'] },
+  { href: '/maintenance',    label: 'Maintenance',        icon: Wrench,          roles: ['admin','supervisor','operator'] },
   { href: '/ops-report',     label: 'Ops Report',        icon: FileBarChart2,   roles: ['admin','supervisor','kapa'] },
   { href: '/admin/facility', label: 'Facility',          icon: Layers,          roles: ['admin','supervisor'] },
   { href: '/admin',          label: 'Personnel',         icon: Users,           roles: ['admin'] },
