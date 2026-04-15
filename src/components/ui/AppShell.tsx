@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { Menu, X } from 'lucide-react'
 import NavLinks from './NavLinks'
+import AlertNotifier from './AlertNotifier'
 import type { Profile } from '@/types'
 
 const ROLE_LABELS: Record<string, string> = {
@@ -51,6 +52,7 @@ function Sidebar({ profile, onClose }: { profile: Profile; onClose?: () => void 
           <p className="text-xs font-medium text-white truncate">{profile.full_name}</p>
           <p className="text-xs text-gray-500 truncate">{ROLE_LABELS[profile.role] ?? profile.role}</p>
         </div>
+        <AlertNotifier />
         <form action="/auth/signout" method="post">
           <button type="submit" className="text-xs text-gray-500 hover:text-white transition-colors" title="Sign out">
             Out
@@ -102,7 +104,8 @@ export default function AppShell({
           >
             <Menu size={20} />
           </button>
-          <span className="font-bold text-sm text-white">Worth Oil Processors</span>
+          <span className="font-bold text-sm text-white flex-1">Worth Oil Processors</span>
+          <AlertNotifier />
         </div>
 
         <main className="flex-1 overflow-y-auto">
