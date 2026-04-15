@@ -27,9 +27,9 @@ export default async function AdminPage() {
 
   return (
     <AppShell profile={profile!}>
-      <div className="px-4 py-4 border-b border-gray-800 flex items-center justify-between">
+      <div className="px-6 py-5 border-b border-gray-800 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <h1 className="font-semibold text-base">User Management</h1>
+          <h1 className="font-bold text-lg text-white">Personnel</h1>
           <span className="text-xs text-gray-500">{active} active{inactive > 0 ? `, ${inactive} inactive` : ''}</span>
         </div>
         <InviteForm />

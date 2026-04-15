@@ -1,25 +1,12 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
-import { Waves, Briefcase, AlertTriangle, FlaskConical, Users } from 'lucide-react'
 import Link from 'next/link'
 import type { Profile } from '@/types'
 import AppShell from '@/components/ui/AppShell'
+import LiveStats from './LiveStats'
+import TrendGraph from './TrendGraph'
+import type { TrendDay } from './TrendGraph'
 
-const ROLE_LABELS: Record<string, string> = {
-  admin:       'Administrator',
-  supervisor:  'Supervisor',
-  operator:    'Operator',
-  tank_filler: 'Tank Filler',
-  kapa:        'Kapa (Read-only)',
-}
-
-const NAV_ITEMS = [
-  { href: '/tanks',    label: 'Tank Farm',       icon: Waves,        roles: ['admin','supervisor','operator','tank_filler','kapa'] },
-  { href: '/jobs',     label: 'Job Board',       icon: Briefcase,    roles: ['admin','supervisor','operator'] },
-  { href: '/problems', label: 'Problems',        icon: AlertTriangle,roles: ['admin','supervisor','operator','tank_filler'] },
-  { href: '/reports',  label: 'Lab Reports',     icon: FlaskConical, roles: ['admin','supervisor','operator','kapa'] },
-  { href: '/admin',    label: 'User Management', icon: Users,        roles: ['admin'] },
-]
 
 export default async function DashboardPage() {
   const supabase = await createClient()
@@ -57,6 +44,7 @@ values (
   }
 
   const today = new Date().toISOString().split('T')[0]
+  const since = new Date(Date.now() - 13 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
 
   // Fetch all stats in parallel — single round trip
   const [
@@ -66,6 +54,7 @@ values (
     { count: todayShifts },
     { count: pendingReports },
     { count: myOpenProblems },
+    { data: shiftReports },
   ] = await Promise.all([
     supabase.from('problems').select('*', { count: 'exact', head: true }).eq('status', 'open'),
     supabase.from('problems').select('*', { count: 'exact', head: true }).eq('status', 'open').eq('severity', 'critical'),
@@ -73,6 +62,11 @@ values (
     supabase.from('shifts').select('*', { count: 'exact', head: true }).eq('shift_date', today),
     supabase.from('lab_reports').select('*', { count: 'exact', head: true }).eq('status', 'submitted'),
     supabase.from('problems').select('*', { count: 'exact', head: true }).eq('assigned_to', user.id).eq('status', 'open'),
+    supabase
+      .from('shift_reports')
+      .select('total_produced_liters, spillage_liters, non_conforming_liters, net_production_liters, shifts!inner(shift_date)')
+      .gte('created_at', since)
+      .order('created_at', { ascending: true }),
   ])
 
   // Compute tank alerts client-side (no extra query)
@@ -82,7 +76,6 @@ values (
     return pct < t.min_level_percent || pct > t.max_level_percent
   }).length
 
-  const visibleNav = NAV_ITEMS.filter(item => item.roles.includes(profile.role))
 
   const stats = [
     {
@@ -132,50 +125,70 @@ values (
     },
   ].filter(s => s.roles.includes(profile.role))
 
+  // Aggregate shift reports by date for trend graph
+  const dayMap = new Map<string, { gross: number; spillage: number; nonConforming: number; net: number }>()
+  for (const r of (shiftReports ?? [])) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const date: string = (r as any).shifts?.shift_date ?? ''
+    if (!date) continue
+    const existing = dayMap.get(date) ?? { gross: 0, spillage: 0, nonConforming: 0, net: 0 }
+    dayMap.set(date, {
+      gross:         existing.gross         + (r.total_produced_liters    ?? 0),
+      spillage:      existing.spillage      + (r.spillage_liters          ?? 0),
+      nonConforming: existing.nonConforming + (r.non_conforming_liters    ?? 0),
+      net:           existing.net           + (r.net_production_liters    ?? 0),
+    })
+  }
+  const trendData: TrendDay[] = Array.from(dayMap.entries())
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([date, vals]) => ({
+      date: new Date(date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }),
+      ...vals,
+    }))
+
   return (
     <AppShell profile={profile}>
-      <main className="max-w-4xl mx-auto px-6 py-10 space-y-10">
-        <div>
-          <h2 className="text-xl font-semibold mb-1">
-            Welcome, {profile.full_name.split(' ')[0]}
-          </h2>
-          <p className="text-gray-400 text-sm">
-            {ROLE_LABELS[profile.role]} · {new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}
-          </p>
+      {/* Page title bar */}
+      <div className="px-6 py-5 border-b border-gray-800">
+        <h1 className="font-bold text-lg text-white">Monitoring</h1>
+        <p className="text-sm text-gray-400 mt-0.5">
+          Real-time operations dashboard · {new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}
+        </p>
+      </div>
+
+      <div className="px-6 py-6 space-y-6">
+        {/* Stats row — live via Supabase Realtime */}
+        <LiveStats initial={stats} />
+
+        {/* Production trend graph */}
+        <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+          <p className="font-semibold text-sm text-white mb-0.5">Production Trend — Last 14 Days</p>
+          <p className="text-xs text-gray-500 mb-4">Gross vs net output with spillage and non-conforming losses</p>
+          <TrendGraph data={trendData} />
         </div>
 
-        {/* Stats row */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-          {stats.map(stat => (
-            <Link
-              key={stat.label}
-              href={stat.href}
-              className={`border rounded-xl p-4 flex flex-col gap-1 hover:brightness-110 transition-all ${stat.color}`}
-            >
-              <span className={`text-2xl font-bold ${stat.valueColor}`}>{stat.value}</span>
-              <span className="text-xs font-medium text-white leading-tight">{stat.label}</span>
-              {stat.sub && <span className="text-xs text-gray-500">{stat.sub}</span>}
+        {/* Quick info panels */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+            <p className="font-semibold text-sm text-white mb-1">Personnel on Shift Today</p>
+            <p className="text-xs text-gray-500">Active shift assignments for today</p>
+            <Link href="/jobs" className="mt-3 inline-flex items-center gap-1 text-xs text-orange-400 hover:text-orange-300">
+              View Job Board →
             </Link>
-          ))}
-        </div>
-
-        {/* Module nav */}
-        <div>
-          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Modules</p>
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-            {visibleNav.map(({ href, label, icon: Icon }) => (
-              <Link
-                key={href}
-                href={href}
-                className="bg-gray-900 border border-gray-800 hover:border-blue-500 rounded-xl p-5 flex flex-col gap-3 transition-colors group"
-              >
-                <Icon size={22} className="text-blue-400 group-hover:text-blue-300" />
-                <span className="font-medium text-sm">{label}</span>
-              </Link>
-            ))}
+          </div>
+          <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+            <p className="font-semibold text-sm text-white mb-1">Attention Required</p>
+            <p className="text-xs text-gray-500">
+              {(openProblems ?? 0) > 0
+                ? `${openProblems} open problem${(openProblems ?? 0) > 1 ? 's' : ''} need attention`
+                : 'No critical issues at this time'}
+            </p>
+            <Link href="/problems" className="mt-3 inline-flex items-center gap-1 text-xs text-orange-400 hover:text-orange-300">
+              View Problems →
+            </Link>
           </div>
         </div>
-      </main>
+      </div>
     </AppShell>
   )
 }

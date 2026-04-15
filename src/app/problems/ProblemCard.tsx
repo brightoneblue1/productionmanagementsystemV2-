@@ -21,10 +21,20 @@ interface Problem {
   severity: 'low' | 'medium' | 'high' | 'critical'
   status: 'open' | 'in_progress' | 'resolved' | 'closed'
   reported_at: string
+  due_date: string | null
+  priority: number | null
   plants: { name: string } | null
   reporter: { full_name: string } | null
   assignee: { full_name: string } | null
   problem_updates: Update[]
+}
+
+const PRIORITY_LABELS: Record<number, { label: string; color: string }> = {
+  1: { label: 'P1', color: 'text-red-400 bg-red-500/10 border-red-500/30' },
+  2: { label: 'P2', color: 'text-orange-400 bg-orange-500/10 border-orange-500/30' },
+  3: { label: 'P3', color: 'text-yellow-400 bg-yellow-500/10 border-yellow-500/30' },
+  4: { label: 'P4', color: 'text-blue-400 bg-blue-500/10 border-blue-500/30' },
+  5: { label: 'P5', color: 'text-gray-400 bg-gray-500/10 border-gray-500/30' },
 }
 
 const SEVERITY_STYLES: Record<string, string> = {
@@ -100,6 +110,11 @@ export default function ProblemCard({
       <div className="p-4">
         <div className="flex items-start justify-between gap-3 mb-2">
           <div className="flex items-center gap-2 flex-wrap">
+            {problem.priority && PRIORITY_LABELS[problem.priority] && (
+              <span className={`text-xs px-2 py-0.5 rounded-full border font-semibold ${PRIORITY_LABELS[problem.priority].color}`}>
+                {PRIORITY_LABELS[problem.priority].label}
+              </span>
+            )}
             <span className={`text-xs px-2 py-0.5 rounded-full border ${SEVERITY_STYLES[problem.severity]}`}>
               {problem.severity}
             </span>
@@ -108,6 +123,15 @@ export default function ProblemCard({
             </span>
             {problem.plants?.name && (
               <span className="text-xs text-gray-500">{problem.plants.name}</span>
+            )}
+            {problem.due_date && (
+              <span className={`text-xs px-2 py-0.5 rounded-full border ${
+                new Date(problem.due_date) < new Date()
+                  ? 'text-red-400 bg-red-500/10 border-red-500/30'
+                  : 'text-gray-400 bg-gray-800 border-gray-700'
+              }`}>
+                Due {new Date(problem.due_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+              </span>
             )}
           </div>
           <button

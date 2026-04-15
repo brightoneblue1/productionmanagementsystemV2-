@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { Sun, Sunset, Moon, Users } from 'lucide-react'
 import NewShiftForm from './NewShiftForm'
+import ShiftReportPanel from './ShiftReportPanel'
 import AppShell from '@/components/ui/AppShell'
 import type { Profile } from '@/types'
 
@@ -9,6 +10,19 @@ interface Assignment {
   profile_id: string
   role_on_shift: string | null
   profiles: { full_name: string; role: string } | null
+}
+
+interface ShiftReport {
+  id: string
+  status: string
+  total_produced_liters: number
+  spillage_liters: number
+  non_conforming_liters: number
+  net_production_liters: number
+  spillage_description: string | null
+  non_conforming_reason: string | null
+  outstanding_issues: string | null
+  handover_notes: string | null
 }
 
 interface Shift {
@@ -19,6 +33,7 @@ interface Shift {
   end_time: string
   plants: { name: string } | null
   shift_assignments: Assignment[]
+  shift_reports: ShiftReport[]
 }
 
 const SHIFT_ICON = {
@@ -66,6 +81,12 @@ export default async function JobsPage() {
           shift_assignments (
             profile_id, role_on_shift,
             profiles ( full_name, role )
+          ),
+          shift_reports (
+            id, status, total_produced_liters, spillage_liters,
+            non_conforming_liters, net_production_liters,
+            spillage_description, non_conforming_reason,
+            outstanding_issues, handover_notes
           )
         `)
         .gte('shift_date', new Date(Date.now() - 86400000 * 2).toISOString().split('T')[0])
@@ -77,7 +98,8 @@ export default async function JobsPage() {
       supabase.from('profiles').select('role').eq('id', user.id).single(),
     ])
 
-  const canCreate = ['admin', 'supervisor'].includes(profile?.role ?? '')
+  const canCreate  = ['admin', 'supervisor'].includes(profile?.role ?? '')
+  const canManage  = ['admin', 'supervisor'].includes(profile?.role ?? '')
 
   const { data: fullProfile } = await supabase
     .from('profiles').select('*').eq('id', user.id).single<Profile>()
@@ -93,8 +115,9 @@ export default async function JobsPage() {
 
   return (
     <AppShell profile={fullProfile}>
-      <div className="px-4 py-4 border-b border-gray-800">
-        <h1 className="font-semibold text-base">Job Board</h1>
+      <div className="px-6 py-5 border-b border-gray-800">
+        <h1 className="font-bold text-lg text-white">Shift Management</h1>
+        <p className="text-sm text-gray-400 mt-0.5">Schedule and assign shifts to personnel</p>
       </div>
       <main className="max-w-3xl mx-auto px-6 py-8 space-y-6">
         {canCreate && (
@@ -153,6 +176,12 @@ export default async function JobsPage() {
                         ))}
                       </div>
                     )}
+
+                    <ShiftReportPanel
+                      shiftId={shift.id}
+                      canManage={canManage}
+                      existingReport={shift.shift_reports?.[0] ?? null}
+                    />
                   </div>
                 ))}
               </div>

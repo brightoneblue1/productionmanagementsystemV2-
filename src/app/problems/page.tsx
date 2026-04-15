@@ -17,7 +17,7 @@ export default async function ProblemsPage() {
       supabase
         .from('problems')
         .select(`
-          id, title, description, severity, status, reported_at, plant_id,
+          id, title, description, severity, status, reported_at, due_date, priority, plant_id,
           plants ( name ),
           reporter:profiles!problems_reported_by_fkey ( full_name ),
           assignee:profiles!problems_assigned_to_fkey ( full_name ),
@@ -26,6 +26,8 @@ export default async function ProblemsPage() {
             updater:profiles!problem_updates_updated_by_fkey ( full_name )
           )
         `)
+        .order('priority', { ascending: true, nullsFirst: false })
+        .order('due_date', { ascending: true, nullsFirst: false })
         .order('reported_at', { ascending: false })
         .limit(50),
       supabase.from('plants').select('id, name').eq('is_active', true),
@@ -41,8 +43,8 @@ export default async function ProblemsPage() {
 
   return (
     <AppShell profile={profile as unknown as Profile}>
-      <div className="px-4 py-4 border-b border-gray-800 flex items-center gap-3">
-        <h1 className="font-semibold text-base">Problems</h1>
+      <div className="px-6 py-5 border-b border-gray-800 flex items-center gap-3">
+        <h1 className="font-bold text-lg text-white">Problems</h1>
         {openCount > 0 && (
           <span className="text-xs bg-red-500/20 text-red-400 border border-red-500/30 px-2.5 py-1 rounded-full">
             {openCount} open

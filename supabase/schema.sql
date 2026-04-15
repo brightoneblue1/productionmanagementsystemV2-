@@ -1,9 +1,16 @@
 -- ============================================================
 -- WORTH OPS — FULL DATABASE SCHEMA
--- Paste this into Supabase SQL Editor and click "Run"
+-- Paste into Supabase SQL Editor and click "Run".
+-- Safe to re-run: resets the public schema first (auth is untouched).
 -- ============================================================
 
--- Enable UUID generation
+-- Wipe and recreate public schema so re-runs always work cleanly
+drop schema public cascade;
+create schema public;
+grant all on schema public to postgres;
+grant all on schema public to public;
+grant usage on schema public to anon, authenticated;
+
 create extension if not exists "uuid-ossp";
 
 
@@ -39,7 +46,6 @@ create trigger profiles_updated_at
   before update on profiles
   for each row execute function handle_updated_at();
 
--- Auto-create a profile row when a new user signs up
 create or replace function handle_new_user()
 returns trigger as $$
 begin
@@ -64,7 +70,7 @@ create trigger on_auth_user_created
 create table plants (
   id          uuid primary key default uuid_generate_v4(),
   name        text not null,
-  code        text unique not null,   -- e.g. 'P1', 'P2'
+  code        text unique not null,
   description text,
   is_active   boolean default true,
   created_at  timestamptz default now()
@@ -74,26 +80,30 @@ create table tank_farms (
   id              uuid primary key default uuid_generate_v4(),
   plant_id        uuid references plants(id) on delete cascade,
   name            text not null,
-  code            text unique not null,  -- e.g. 'TF1'
+  code            text unique not null,
   capacity_total  numeric,
   created_at      timestamptz default now()
 );
 
 create table tanks (
-  id                  uuid primary key default uuid_generate_v4(),
-  tank_farm_id        uuid references tank_farms(id) on delete cascade,
-  name                text not null,
-  code                text unique not null,   -- e.g. 'T001'
-  capacity_liters     numeric not null,
-  product_type        text,                   -- e.g. 'crude', 'diesel', 'petrol'
-  min_level_percent   numeric default 10,
-  max_level_percent   numeric default 90,
-  current_level_liters numeric default 0,
-  is_active           boolean default true,
-  created_at          timestamptz default now()
+  id                    uuid primary key default uuid_generate_v4(),
+  tank_farm_id          uuid references tank_farms(id) on delete cascade,
+  name                  text not null,
+  code                  text unique not null,
+  capacity_liters       numeric not null,
+  product_type          text,
+  min_level_percent     numeric default 10,
+  max_level_percent     numeric default 90,
+  alert_low_percent     numeric default 25,
+  alert_high_percent    numeric default 80,
+  current_level_liters  numeric default 0,
+  pump_flow_rate_lph    numeric default 0,
+  pump_speed_factor     numeric default 1.0,
+  assigned_filler_id    uuid references profiles(id),
+  is_active             boolean default true,
+  created_at            timestamptz default now()
 );
 
--- Supervisor → Plant assignments
 create table plant_supervisors (
   id          uuid primary key default uuid_generate_v4(),
   plant_id    uuid references plants(id) on delete cascade,
@@ -102,7 +112,6 @@ create table plant_supervisors (
   unique(plant_id, profile_id)
 );
 
--- Operator → Plant assignments
 create table plant_operators (
   id          uuid primary key default uuid_generate_v4(),
   plant_id    uuid references plants(id) on delete cascade,
@@ -111,7 +120,6 @@ create table plant_operators (
   unique(plant_id, profile_id)
 );
 
--- Tank filler → Tank farm assignments
 create table farm_fillers (
   id            uuid primary key default uuid_generate_v4(),
   tank_farm_id  uuid references tank_farms(id) on delete cascade,
@@ -145,6 +153,26 @@ create table shift_assignments (
   role_on_shift   text,
   notes           text,
   unique(shift_id, profile_id)
+);
+
+create table shift_reports (
+  id                       uuid primary key default uuid_generate_v4(),
+  shift_id                 uuid not null references shifts(id) on delete cascade unique,
+  total_produced_liters    numeric not null default 0,
+  spillage_liters          numeric not null default 0,
+  spillage_description     text,
+  non_conforming_liters    numeric not null default 0,
+  non_conforming_reason    text,
+  net_production_liters    numeric generated always as (
+                             total_produced_liters - spillage_liters - non_conforming_liters
+                           ) stored,
+  outstanding_issues       text,
+  handover_notes           text,
+  status                   text not null default 'submitted'
+                             check (status in ('draft', 'submitted', 'signed_off')),
+  signed_off_by            uuid references profiles(id),
+  signed_off_at            timestamptz,
+  created_at               timestamptz default now()
 );
 
 
@@ -188,19 +216,19 @@ create table production_batches (
 
 
 -- ============================================================
--- 5. TANK READINGS, FILL EVENTS, EQUIPMENT STATES
+-- 5. TANK READINGS, FILL EVENTS, CONNECTIONS, CLEANING
 -- ============================================================
 create table tank_readings (
   id                  uuid primary key default uuid_generate_v4(),
   tank_id             uuid references tanks(id) on delete cascade,
   level_liters        numeric not null,
-  level_percent       numeric,   -- stored directly (calculated before insert)
+  level_percent       numeric,
   temperature_celsius numeric,
   recorded_by         uuid references profiles(id),
-  recorded_at         timestamptz default now()
+  created_at          timestamptz default now()
 );
 
--- Update the tank's current level when a new reading is inserted
+-- Sync tank's current level when a new reading is inserted
 create or replace function sync_tank_level()
 returns trigger as $$
 begin
@@ -220,22 +248,62 @@ create type fill_status as enum ('started', 'in_progress', 'completed', 'aborted
 create table tank_fill_events (
   id                    uuid primary key default uuid_generate_v4(),
   tank_id               uuid references tanks(id) on delete cascade,
-  filler_id             uuid references profiles(id),
+  operator_id           uuid references profiles(id),
+  volume_added_liters   numeric,
+  tanker_reference      text,
+  product_type          text,
   level_before_liters   numeric,
   level_after_liters    numeric,
-  volume_added_liters   numeric,
   started_at            timestamptz default now(),
   completed_at          timestamptz,
   status                fill_status default 'started',
   notes                 text
 );
 
+create table tank_connections (
+  id                  uuid primary key default uuid_generate_v4(),
+  tank_id             uuid not null references tanks(id) on delete cascade,
+  direction           text not null check (direction in ('in', 'out')),
+  connection_type     text not null check (connection_type in ('feed', 'drain', 'circulation', 'transfer')),
+  connected_tank_id   uuid references tanks(id),
+  connected_plant_id  uuid references plants(id),
+  pump_name           text,
+  flow_rate_lph       numeric default 0,
+  notes               text,
+  is_active           boolean default true,
+  created_at          timestamptz default now()
+);
+
+create table tank_cleaning_schedules (
+  id               uuid primary key default uuid_generate_v4(),
+  tank_id          uuid not null references tanks(id) on delete cascade,
+  frequency_days   integer not null default 90,
+  last_cleaned_at  timestamptz,
+  next_due_at      timestamptz,
+  procedure        text,
+  notes            text,
+  is_active        boolean default true,
+  created_at       timestamptz default now()
+);
+
+create table tank_cleaning_logs (
+  id               uuid primary key default uuid_generate_v4(),
+  tank_id          uuid not null references tanks(id) on delete cascade,
+  schedule_id      uuid references tank_cleaning_schedules(id),
+  cleaned_at       timestamptz not null default now(),
+  cleaned_by       uuid references profiles(id),
+  duration_hours   numeric,
+  observations     text,
+  procedure_notes  text,
+  created_at       timestamptz default now()
+);
+
 create table equipment_states (
   id               uuid primary key default uuid_generate_v4(),
   tank_id          uuid references tanks(id) on delete cascade,
-  equipment_name   text not null,   -- e.g. 'inlet_valve', 'outlet_valve', 'pump'
-  equipment_type   text not null,   -- 'valve' or 'motor'
-  state            text not null,   -- 'open'/'closed'/'partial' or 'on'/'off'/'fault'
+  equipment_name   text not null,
+  equipment_type   text not null,
+  state            text not null,
   changed_by       uuid references profiles(id),
   changed_at       timestamptz default now()
 );
@@ -269,7 +337,7 @@ create table ppe_issuances (
   id          uuid primary key default uuid_generate_v4(),
   profile_id  uuid references profiles(id),
   plant_id    uuid references plants(id),
-  ppe_items   jsonb not null,   -- [{"item": "helmet", "qty": 1}, ...]
+  ppe_items   jsonb not null,
   issued_by   uuid references profiles(id),
   issued_at   timestamptz default now(),
   returned_at timestamptz,
@@ -300,9 +368,10 @@ create table lab_reports (
   sample_taken_at timestamptz not null,
   submitted_by    uuid references profiles(id),
   approved_by     uuid references profiles(id),
-  status          report_status default 'draft',
-  notes           text,
-  created_at      timestamptz default now(),
+  status           report_status default 'draft',
+  notes            text,
+  rejection_reason text,
+  created_at       timestamptz default now(),
   updated_at      timestamptz default now()
 );
 
@@ -313,12 +382,12 @@ create trigger lab_reports_updated_at
 create table quality_values (
   id              uuid primary key default uuid_generate_v4(),
   report_id       uuid references lab_reports(id) on delete cascade,
-  parameter_name  text not null,   -- e.g. 'viscosity', 'density', 'flash_point'
+  parameter_name  text not null,
   value           numeric not null,
-  unit            text not null,   -- e.g. 'cSt', 'kg/m3', '°C'
+  unit            text not null,
   min_spec        numeric,
   max_spec        numeric,
-  is_within_spec  boolean          -- set by app before insert
+  is_within_spec  boolean
 );
 
 
@@ -336,6 +405,8 @@ create table problems (
   description   text not null,
   severity      problem_severity default 'medium',
   status        problem_status default 'open',
+  priority      integer,
+  due_date      date,
   reported_by   uuid references profiles(id),
   assigned_to   uuid references profiles(id),
   reported_at   timestamptz default now(),
@@ -357,100 +428,121 @@ create table problem_updates (
 
 
 -- ============================================================
--- ROW LEVEL SECURITY (RLS)
+-- ROW LEVEL SECURITY
 -- ============================================================
-alter table profiles          enable row level security;
-alter table plants             enable row level security;
-alter table tank_farms         enable row level security;
-alter table tanks              enable row level security;
-alter table plant_supervisors  enable row level security;
-alter table plant_operators    enable row level security;
-alter table farm_fillers       enable row level security;
-alter table shifts             enable row level security;
-alter table shift_assignments  enable row level security;
-alter table production_schedules enable row level security;
-alter table production_batches enable row level security;
-alter table tank_readings      enable row level security;
-alter table tank_fill_events   enable row level security;
-alter table equipment_states   enable row level security;
-alter table work_permits       enable row level security;
-alter table ppe_issuances      enable row level security;
-alter table safety_checkpoints enable row level security;
-alter table lab_reports        enable row level security;
-alter table quality_values     enable row level security;
-alter table problems           enable row level security;
-alter table problem_updates    enable row level security;
+alter table profiles               enable row level security;
+alter table plants                 enable row level security;
+alter table tank_farms             enable row level security;
+alter table tanks                  enable row level security;
+alter table plant_supervisors      enable row level security;
+alter table plant_operators        enable row level security;
+alter table farm_fillers           enable row level security;
+alter table shifts                 enable row level security;
+alter table shift_assignments      enable row level security;
+alter table shift_reports          enable row level security;
+alter table production_schedules   enable row level security;
+alter table production_batches     enable row level security;
+alter table tank_readings          enable row level security;
+alter table tank_fill_events       enable row level security;
+alter table tank_connections       enable row level security;
+alter table tank_cleaning_schedules enable row level security;
+alter table tank_cleaning_logs     enable row level security;
+alter table equipment_states       enable row level security;
+alter table work_permits           enable row level security;
+alter table ppe_issuances          enable row level security;
+alter table safety_checkpoints     enable row level security;
+alter table lab_reports            enable row level security;
+alter table quality_values         enable row level security;
+alter table problems               enable row level security;
+alter table problem_updates        enable row level security;
 
--- Helper: get the current user's role
+-- Role helpers
 create or replace function current_user_role()
 returns user_role as $$
   select role from profiles where id = auth.uid();
 $$ language sql security definer stable;
 
--- Helper: is the current user an admin?
 create or replace function is_admin()
 returns boolean as $$
   select current_user_role() = 'admin';
 $$ language sql security definer stable;
 
 -- PROFILES
-create policy "Users can view all profiles"    on profiles for select using (auth.uid() is not null);
-create policy "Users can update own profile"   on profiles for update using (auth.uid() = id);
-create policy "Admin can update any profile"   on profiles for update using (is_admin());
-create policy "Admin can insert profiles"      on profiles for insert with check (is_admin());
+create policy "Users can view all profiles"  on profiles for select using (auth.uid() is not null);
+create policy "Users can update own profile" on profiles for update using (auth.uid() = id);
+create policy "Admin can update any profile" on profiles for update using (is_admin());
+create policy "Admin can insert profiles"    on profiles for insert with check (is_admin());
 
--- PLANTS, TANK FARMS, TANKS — everyone reads, admin writes
-create policy "Anyone authenticated can read plants"     on plants for select using (auth.uid() is not null);
-create policy "Admin can manage plants"                  on plants for all using (is_admin());
+-- PLANTS / TANK FARMS / TANKS
+create policy "Read plants"      on plants      for select using (auth.uid() is not null);
+create policy "Admin manage plants" on plants   for all    using (is_admin());
 
-create policy "Anyone authenticated can read tank_farms" on tank_farms for select using (auth.uid() is not null);
-create policy "Admin can manage tank_farms"              on tank_farms for all using (is_admin());
+create policy "Read tank_farms"      on tank_farms  for select using (auth.uid() is not null);
+create policy "Admin manage tank_farms" on tank_farms for all  using (is_admin());
 
-create policy "Anyone authenticated can read tanks"      on tanks for select using (auth.uid() is not null);
-create policy "Admin can manage tanks"                   on tanks for all using (is_admin());
-
--- ASSIGNMENT TABLES — read by all, write by admin
-create policy "Read plant_supervisors" on plant_supervisors for select using (auth.uid() is not null);
-create policy "Admin manages plant_supervisors" on plant_supervisors for all using (is_admin());
-
-create policy "Read plant_operators" on plant_operators for select using (auth.uid() is not null);
-create policy "Admin manages plant_operators" on plant_operators for all using (is_admin());
-
-create policy "Read farm_fillers" on farm_fillers for select using (auth.uid() is not null);
-create policy "Admin manages farm_fillers" on farm_fillers for all using (is_admin());
-
--- SHIFTS — read by all, supervisors and admin create
-create policy "Read shifts" on shifts for select using (auth.uid() is not null);
-create policy "Supervisors and admin create shifts" on shifts for insert
-  with check (current_user_role() in ('admin', 'supervisor'));
-create policy "Admin updates shifts" on shifts for update using (is_admin());
-
-create policy "Read shift_assignments" on shift_assignments for select using (auth.uid() is not null);
-create policy "Supervisors and admin manage shift_assignments" on shift_assignments for all
+create policy "Read tanks"           on tanks for select using (auth.uid() is not null);
+create policy "Admin manage tanks"   on tanks for all    using (is_admin());
+create policy "Supervisors update tanks" on tanks for update
   using (current_user_role() in ('admin', 'supervisor'));
 
--- PRODUCTION — read by all, operators+ create
+-- ASSIGNMENT TABLES
+create policy "Read plant_supervisors" on plant_supervisors for select using (auth.uid() is not null);
+create policy "Admin manage plant_supervisors" on plant_supervisors for all using (is_admin());
+
+create policy "Read plant_operators" on plant_operators for select using (auth.uid() is not null);
+create policy "Admin manage plant_operators" on plant_operators for all using (is_admin());
+
+create policy "Read farm_fillers" on farm_fillers for select using (auth.uid() is not null);
+create policy "Admin manage farm_fillers" on farm_fillers for all using (is_admin());
+
+-- SHIFTS
+create policy "Read shifts" on shifts for select using (auth.uid() is not null);
+create policy "Supervisors create shifts" on shifts for insert
+  with check (current_user_role() in ('admin', 'supervisor'));
+create policy "Admin update shifts" on shifts for update using (is_admin());
+
+create policy "Read shift_assignments" on shift_assignments for select using (auth.uid() is not null);
+create policy "Supervisors manage shift_assignments" on shift_assignments for all
+  using (current_user_role() in ('admin', 'supervisor'));
+
+create policy "Read shift_reports" on shift_reports for select using (auth.uid() is not null);
+create policy "Authenticated manage shift_reports" on shift_reports for all
+  using (auth.uid() is not null);
+
+-- PRODUCTION
 create policy "Read production_schedules" on production_schedules for select using (auth.uid() is not null);
-create policy "Supervisors and admin manage schedules" on production_schedules for all
+create policy "Supervisors manage schedules" on production_schedules for all
   using (current_user_role() in ('admin', 'supervisor'));
 
 create policy "Read production_batches" on production_batches for select using (auth.uid() is not null);
-create policy "Operators and above manage batches" on production_batches for all
+create policy "Operators manage batches" on production_batches for all
   using (current_user_role() in ('admin', 'supervisor', 'operator'));
 
--- TANK DATA — read by all, fillers and operators insert
+-- TANK DATA
 create policy "Read tank_readings" on tank_readings for select using (auth.uid() is not null);
-create policy "Fillers and operators insert readings" on tank_readings for insert
+create policy "Fillers insert readings" on tank_readings for insert
   with check (current_user_role() in ('admin', 'supervisor', 'operator', 'tank_filler'));
 
 create policy "Read tank_fill_events" on tank_fill_events for select using (auth.uid() is not null);
 create policy "Fillers insert fill events" on tank_fill_events for insert
   with check (current_user_role() in ('admin', 'supervisor', 'tank_filler'));
 create policy "Fillers update own fill events" on tank_fill_events for update
-  using (auth.uid() = filler_id or is_admin());
+  using (auth.uid() = operator_id or is_admin());
+
+create policy "Read tank_connections" on tank_connections for select using (auth.uid() is not null);
+create policy "Supervisors manage tank_connections" on tank_connections for all
+  using (current_user_role() in ('admin', 'supervisor'));
+
+create policy "Read tank_cleaning_schedules" on tank_cleaning_schedules for select using (auth.uid() is not null);
+create policy "Supervisors manage cleaning schedules" on tank_cleaning_schedules for all
+  using (current_user_role() in ('admin', 'supervisor'));
+
+create policy "Read tank_cleaning_logs" on tank_cleaning_logs for select using (auth.uid() is not null);
+create policy "Authenticated insert cleaning logs" on tank_cleaning_logs for insert
+  with check (auth.uid() is not null);
 
 create policy "Read equipment_states" on equipment_states for select using (auth.uid() is not null);
-create policy "Operators and above manage equipment" on equipment_states for insert
+create policy "Operators manage equipment" on equipment_states for insert
   with check (current_user_role() in ('admin', 'supervisor', 'operator', 'tank_filler'));
 
 -- SAFETY
@@ -481,24 +573,141 @@ create policy "Insert quality_values" on quality_values for insert
 -- PROBLEMS
 create policy "Read problems" on problems for select using (auth.uid() is not null);
 create policy "Anyone can report a problem" on problems for insert with check (auth.uid() is not null);
-create policy "Assigned or admin can update problem" on problems for update
-  using (auth.uid() = assigned_to or auth.uid() = reported_by or current_user_role() in ('admin', 'supervisor'));
+create policy "Assigned or admin update problem" on problems for update
+  using (auth.uid() = assigned_to or auth.uid() = reported_by
+         or current_user_role() in ('admin', 'supervisor'));
 
 create policy "Read problem_updates" on problem_updates for select using (auth.uid() is not null);
 create policy "Anyone can add problem updates" on problem_updates for insert with check (auth.uid() is not null);
 
 
 -- ============================================================
--- SEED DATA — starter plants and tank farms
--- (Update names/codes to match your actual facility)
+-- 9. REPORTING MODULES
+-- ============================================================
+
+-- Machine & Equipment Reports
+create table equipment_reports (
+  id                uuid primary key default uuid_generate_v4(),
+  plant_id          uuid references plants(id),
+  shift_id          uuid references shifts(id),
+  report_date       date not null default current_date,
+  equipment_name    text not null,
+  equipment_type    text not null,
+  status            text not null check (status in ('operational','degraded','fault','offline','maintenance')),
+  uptime_hours      numeric,
+  downtime_hours    numeric,
+  fault_description text,
+  action_taken      text,
+  reported_by       uuid references profiles(id),
+  created_at        timestamptz default now()
+);
+
+-- Safety & Audit Reports
+create type safety_report_type as enum ('daily_safety','incident','near_miss','ppe_audit','inspection');
+
+create table safety_reports (
+  id                uuid primary key default uuid_generate_v4(),
+  plant_id          uuid references plants(id),
+  report_date       date not null default current_date,
+  report_type       safety_report_type not null,
+  title             text not null,
+  description       text not null,
+  severity          problem_severity,
+  workers_count     integer,
+  ppe_compliant     boolean,
+  corrective_action text,
+  submitted_by      uuid references profiles(id),
+  reviewed_by       uuid references profiles(id),
+  status            text not null default 'open' check (status in ('open','under_review','closed')),
+  created_at        timestamptz default now(),
+  updated_at        timestamptz default now()
+);
+
+create trigger safety_reports_updated_at
+  before update on safety_reports
+  for each row execute function handle_updated_at();
+
+-- Plant Area / Daily Production Reports
+create table plant_daily_reports (
+  id                         uuid primary key default uuid_generate_v4(),
+  plant_id                   uuid not null references plants(id),
+  report_date                date not null,
+  shift_id                   uuid references shifts(id),
+  crude_received_liters      numeric default 0,
+  crude_type                 text,
+  product_produced_liters    numeric default 0,
+  product_type               text,
+  olein_yield_percent        numeric,
+  stearin_yield_percent      numeric,
+  ffa_percent                numeric,
+  moisture_percent           numeric,
+  capacity_utilization       numeric,
+  operating_hours            numeric,
+  notes                      text,
+  status                     text not null default 'draft' check (status in ('draft','submitted','approved')),
+  submitted_by               uuid references profiles(id),
+  approved_by                uuid references profiles(id),
+  created_at                 timestamptz default now(),
+  unique(plant_id, report_date, shift_id)
+);
+
+-- RLS
+alter table equipment_reports  enable row level security;
+alter table safety_reports     enable row level security;
+alter table plant_daily_reports enable row level security;
+
+create policy "Read equipment_reports"   on equipment_reports   for select using (auth.uid() is not null);
+create policy "Submit equipment_reports" on equipment_reports   for insert with check (auth.uid() is not null);
+create policy "Update equipment_reports" on equipment_reports   for update using (auth.uid() is not null);
+
+create policy "Read safety_reports"      on safety_reports      for select using (auth.uid() is not null);
+create policy "Submit safety_reports"    on safety_reports      for insert with check (auth.uid() is not null);
+create policy "Update safety_reports"    on safety_reports      for update using (is_admin() or current_user_role() = 'supervisor');
+
+create policy "Read plant_daily_reports"   on plant_daily_reports for select using (auth.uid() is not null);
+create policy "Submit plant_daily_reports" on plant_daily_reports for insert with check (auth.uid() is not null);
+create policy "Approve plant_daily_reports" on plant_daily_reports for update using (is_admin() or current_user_role() = 'supervisor');
+
+-- ============================================================
+-- ROLE GRANTS
+-- (needed after drop schema public cascade wipes default Supabase grants)
+-- ============================================================
+grant all on all tables    in schema public to authenticated;
+grant all on all sequences in schema public to authenticated;
+grant select on all tables in schema public to anon;
+alter default privileges in schema public grant all on tables    to authenticated;
+alter default privileges in schema public grant all on sequences to authenticated;
+alter default privileges in schema public grant select on tables to anon;
+
+-- ============================================================
+-- SEED DATA
 -- ============================================================
 insert into plants (name, code, description) values
-  ('Plant 1', 'P1', 'Main processing plant'),
-  ('Plant 2', 'P2', 'Secondary processing plant');
+  ('Soya Degumming',        'P1', 'Crude soya bean oil → degummed soya bean oil'),
+  ('Sunflower Processing',  'P2', 'Crude sunflower oil → refined sunflower oil'),
+  ('Palm RBD',              'P3', 'Crude palm oil (CPO) → refined, bleached & deodorised (RBD)'),
+  ('Soya Neutralisation',   'P4', 'Degummed soya bean oil → neutralised soya bean oil'),
+  ('Fractionation 1',       'P5', 'RBD palm oil → olein and stearin (line 1)'),
+  ('Fractionation 2',       'P6', 'RBD palm oil → olein and stearin (line 2)');
 
 insert into tank_farms (plant_id, name, code) values
-  ((select id from plants where code = 'P1'), 'Tank Farm 1', 'TF1'),
-  ((select id from plants where code = 'P1'), 'Tank Farm 2', 'TF2'),
-  ((select id from plants where code = 'P1'), 'Tank Farm 3', 'TF3'),
-  ((select id from plants where code = 'P2'), 'Tank Farm 4', 'TF4'),
-  ((select id from plants where code = 'P2'), 'Tank Farm 5', 'TF5');
+  -- P1 Soya Degumming
+  ((select id from plants where code = 'P1'), 'P1 Crude Feed',       'P1-FEED'),
+  ((select id from plants where code = 'P1'), 'P1 Degummed Product', 'P1-PROD'),
+  -- P2 Sunflower
+  ((select id from plants where code = 'P2'), 'P2 Crude Feed',       'P2-FEED'),
+  ((select id from plants where code = 'P2'), 'P2 Product',          'P2-PROD'),
+  -- P3 Palm RBD
+  ((select id from plants where code = 'P3'), 'P3 CPO Feed',         'P3-FEED'),
+  ((select id from plants where code = 'P3'), 'P3 RBD Product',      'P3-PROD'),
+  -- P4 Soya Neutralisation
+  ((select id from plants where code = 'P4'), 'P4 Degummed Feed',    'P4-FEED'),
+  ((select id from plants where code = 'P4'), 'P4 Neutralised',      'P4-PROD'),
+  -- P5 Fractionation 1
+  ((select id from plants where code = 'P5'), 'P5 RBD Feed',         'P5-FEED'),
+  ((select id from plants where code = 'P5'), 'P5 Olein',            'P5-OLE'),
+  ((select id from plants where code = 'P5'), 'P5 Stearin',          'P5-STE'),
+  -- P6 Fractionation 2
+  ((select id from plants where code = 'P6'), 'P6 RBD Feed',         'P6-FEED'),
+  ((select id from plants where code = 'P6'), 'P6 Olein',            'P6-OLE'),
+  ((select id from plants where code = 'P6'), 'P6 Stearin',          'P6-STE');

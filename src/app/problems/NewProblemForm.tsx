@@ -17,6 +17,8 @@ export default function NewProblemForm({ userId, plants }: { userId: string; pla
     description: '',
     severity: 'medium',
     plant_id: '',
+    priority: '3',
+    due_date: '',
   })
 
   function set(field: string, value: string) {
@@ -34,6 +36,8 @@ export default function NewProblemForm({ userId, plants }: { userId: string; pla
       description: form.description,
       severity: form.severity,
       plant_id: form.plant_id || null,
+      priority: parseInt(form.priority),
+      due_date: form.due_date || null,
       reported_by: userId,
     })
 
@@ -43,7 +47,7 @@ export default function NewProblemForm({ userId, plants }: { userId: string; pla
       return
     }
 
-    setForm({ title: '', description: '', severity: 'medium', plant_id: '' })
+    setForm({ title: '', description: '', severity: 'medium', plant_id: '', priority: '3', due_date: '' })
     setOpen(false)
     setLoading(false)
     router.refresh()
@@ -97,30 +101,42 @@ export default function NewProblemForm({ userId, plants }: { userId: string; pla
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="block text-xs text-gray-400 mb-1">Severity</label>
-            <select
-              value={form.severity}
-              onChange={e => set('severity', e.target.value)}
-              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-red-500"
-            >
+            <select value={form.severity} onChange={e => set('severity', e.target.value)}
+              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-red-500">
               <option value="low">Low</option>
               <option value="medium">Medium</option>
               <option value="high">High</option>
               <option value="critical">Critical</option>
             </select>
           </div>
+          <div>
+            <label className="block text-xs text-gray-400 mb-1">Priority (1=highest)</label>
+            <select value={form.priority} onChange={e => set('priority', e.target.value)}
+              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-red-500">
+              <option value="1">1 — Critical</option>
+              <option value="2">2 — High</option>
+              <option value="3">3 — Medium</option>
+              <option value="4">4 — Low</option>
+              <option value="5">5 — Minimal</option>
+            </select>
+          </div>
+        </div>
 
+        <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="block text-xs text-gray-400 mb-1">Plant (optional)</label>
-            <select
-              value={form.plant_id}
-              onChange={e => set('plant_id', e.target.value)}
-              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-red-500"
-            >
+            <select value={form.plant_id} onChange={e => set('plant_id', e.target.value)}
+              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-red-500">
               <option value="">— None —</option>
               {plants.map(p => (
                 <option key={p.id} value={p.id}>{p.name}</option>
               ))}
             </select>
+          </div>
+          <div>
+            <label className="block text-xs text-gray-400 mb-1">Due Date (optional)</label>
+            <input type="date" value={form.due_date} onChange={e => set('due_date', e.target.value)}
+              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-red-500" />
           </div>
         </div>
 
