@@ -32,7 +32,7 @@ export default function NavLinks({ role, onNavigate }: { role: string; onNavigat
   const activePlant  = searchParams.get('plant')
 
   const [plants, setPlants]           = useState<Plant[]>([])
-  const [expanded, setExpanded]       = useState(true)
+  const [expanded, setExpanded]       = useState(false)
   const [reportsOpen, setReportsOpen] = useState(false)
 
   useEffect(() => {
@@ -44,9 +44,8 @@ export default function NavLinks({ role, onNavigate }: { role: string; onNavigat
       .then(({ data }) => { if (data) setPlants(data) })
   }, [])
 
-  // auto-expand when a plant filter is active or on /tanks
+  // auto-expand reports sub-menu when navigating to a reports page
   useEffect(() => {
-    if (pathname.startsWith('/tanks')) setExpanded(true)
     if (pathname.startsWith('/reports')) setReportsOpen(true)
   }, [pathname])
 
