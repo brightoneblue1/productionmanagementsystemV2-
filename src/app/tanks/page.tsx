@@ -27,7 +27,6 @@ interface Tank {
   pump_flow_rate_lph: number
   pump_speed_factor: number
   assigned_filler_id: string | null
-  assigned_filler: Filler | null
   is_active: boolean
 }
 
@@ -93,6 +92,7 @@ function TankCard({
   const styles = STATUS_STYLES[status]
   const eta = getETA(tank)
   const isMyTank = tank.assigned_filler_id === userId
+  const assignedFiller = fillers.find(f => f.id === tank.assigned_filler_id) ?? null
   const canManage = ['admin', 'supervisor'].includes(userRole)
   const canOperate = userRole !== 'kapa'
 
@@ -205,10 +205,10 @@ function TankCard({
           currentFillerId={tank.assigned_filler_id}
           fillers={fillers}
         />
-      ) : tank.assigned_filler ? (
+      ) : assignedFiller ? (
         <div className="flex items-center gap-1.5 text-xs text-gray-500">
           <User size={11} />
-          <span>{tank.assigned_filler.full_name}</span>
+          <span>{assignedFiller.full_name}</span>
         </div>
       ) : null}
 
@@ -320,8 +320,7 @@ export default async function TanksPage({
         product_type, min_level_percent, max_level_percent,
         alert_low_percent, alert_high_percent,
         pump_flow_rate_lph, pump_speed_factor,
-        assigned_filler_id, is_active,
-        assigned_filler:profiles!tanks_assigned_filler_id_fkey ( id, full_name )
+        assigned_filler_id, is_active
       )
     `)
     .order('code')
