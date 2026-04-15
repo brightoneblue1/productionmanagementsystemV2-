@@ -1,8 +1,9 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
-import { Sun, Sunset, Moon, Users } from 'lucide-react'
+import { Sun, Sunset, Moon, Users, CalendarSearch } from 'lucide-react'
 import NewShiftForm from './NewShiftForm'
 import ShiftReportPanel from './ShiftReportPanel'
+import ShiftDateSearch from './ShiftDateSearch'
 import AppShell from '@/components/ui/AppShell'
 import type { Profile } from '@/types'
 
@@ -65,34 +66,50 @@ function fmt(t: string) {
   return `${hr % 12 || 12}:${m}${hr < 12 ? 'am' : 'pm'}`
 }
 
-export default async function JobsPage() {
+export default async function JobsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ date?: string }>
+}) {
+  const { date: searchDate } = await searchParams
   const supabase = await createClient()
 
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
+  // When a specific date is searched, fetch only that day.
+  // Otherwise show the rolling window (yesterday → next 2 days).
+  const defaultFrom = new Date(Date.now() - 86400000 * 1).toISOString().split('T')[0]
+  const defaultTo   = new Date(Date.now() + 86400000 * 2).toISOString().split('T')[0]
+
+  let shiftsQuery = supabase
+    .from('shifts')
+    .select(`
+      id, shift_type, shift_date, start_time, end_time,
+      plants ( name ),
+      shift_assignments (
+        profile_id, role_on_shift,
+        profiles ( full_name, role )
+      ),
+      shift_reports (
+        id, status, total_produced_liters, spillage_liters,
+        non_conforming_liters, net_production_liters,
+        spillage_description, non_conforming_reason,
+        outstanding_issues, handover_notes
+      )
+    `)
+    .order('shift_date', { ascending: true })
+    .order('start_time', { ascending: true })
+
+  if (searchDate) {
+    shiftsQuery = shiftsQuery.eq('shift_date', searchDate)
+  } else {
+    shiftsQuery = shiftsQuery.gte('shift_date', defaultFrom).lte('shift_date', defaultTo)
+  }
+
   const [{ data: shifts }, { data: plants }, { data: profiles }, { data: profile }] =
     await Promise.all([
-      supabase
-        .from('shifts')
-        .select(`
-          id, shift_type, shift_date, start_time, end_time,
-          plants ( name ),
-          shift_assignments (
-            profile_id, role_on_shift,
-            profiles ( full_name, role )
-          ),
-          shift_reports (
-            id, status, total_produced_liters, spillage_liters,
-            non_conforming_liters, net_production_liters,
-            spillage_description, non_conforming_reason,
-            outstanding_issues, handover_notes
-          )
-        `)
-        .gte('shift_date', new Date(Date.now() - 86400000 * 2).toISOString().split('T')[0])
-        .order('shift_date', { ascending: true })
-        .order('start_time', { ascending: true })
-        .limit(30),
+      shiftsQuery.limit(60),
       supabase.from('plants').select('id, name').eq('is_active', true),
       supabase.from('profiles').select('id, full_name, role').eq('is_active', true),
       supabase.from('profiles').select('role').eq('id', user.id).single(),
@@ -116,11 +133,20 @@ export default async function JobsPage() {
   return (
     <AppShell profile={fullProfile}>
       <div className="px-6 py-5 border-b border-gray-800">
-        <h1 className="font-bold text-lg text-white">Shift Management</h1>
-        <p className="text-sm text-gray-400 mt-0.5">Schedule and assign shifts to personnel</p>
+        <div className="flex items-start justify-between gap-4 flex-wrap">
+          <div>
+            <h1 className="font-bold text-lg text-white">Shift Management</h1>
+            <p className="text-sm text-gray-400 mt-0.5">
+              {searchDate
+                ? `Shifts on ${new Date(searchDate + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}`
+                : 'Schedule and assign shifts to personnel'}
+            </p>
+          </div>
+          <ShiftDateSearch />
+        </div>
       </div>
       <main className="max-w-3xl mx-auto px-6 py-8 space-y-6">
-        {canCreate && (
+        {canCreate && !searchDate && (
           <NewShiftForm
             userId={user.id}
             plants={plants ?? []}
@@ -130,8 +156,18 @@ export default async function JobsPage() {
 
         {Object.keys(grouped).length === 0 ? (
           <div className="text-center py-16 text-gray-600">
-            <Users size={36} className="mx-auto mb-2 opacity-30" />
-            <p>No shifts scheduled yet.</p>
+            {searchDate ? (
+              <>
+                <CalendarSearch size={36} className="mx-auto mb-2 opacity-30" />
+                <p className="font-medium">No shifts found on this date.</p>
+                <p className="text-xs mt-1 text-gray-700">Try a different date or clear the search.</p>
+              </>
+            ) : (
+              <>
+                <Users size={36} className="mx-auto mb-2 opacity-30" />
+                <p>No shifts scheduled yet.</p>
+              </>
+            )}
           </div>
         ) : (
           Object.entries(grouped).map(([date, dayShifts]) => (

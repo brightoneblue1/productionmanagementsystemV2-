@@ -669,6 +669,24 @@ create policy "Submit plant_daily_reports" on plant_daily_reports for insert wit
 create policy "Approve plant_daily_reports" on plant_daily_reports for update using (is_admin() or current_user_role() = 'supervisor');
 
 -- ============================================================
+-- PLANT PROCEDURES (SOP / document store, per plant × section)
+-- ============================================================
+create table plant_procedures (
+  id          uuid primary key default uuid_generate_v4(),
+  plant_id    uuid not null references plants(id) on delete cascade,
+  section_id  text not null,
+  data        jsonb not null default '{}',
+  updated_by  uuid references profiles(id),
+  updated_at  timestamptz default now(),
+  unique (plant_id, section_id)
+);
+
+alter table plant_procedures enable row level security;
+create policy "Read plant_procedures"   on plant_procedures for select using (auth.uid() is not null);
+create policy "Upsert plant_procedures" on plant_procedures for insert with check (auth.uid() is not null);
+create policy "Update plant_procedures" on plant_procedures for update using (auth.uid() is not null);
+
+-- ============================================================
 -- ROLE GRANTS
 -- (needed after drop schema public cascade wipes default Supabase grants)
 -- ============================================================
