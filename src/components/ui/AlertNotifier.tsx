@@ -95,12 +95,12 @@ export default function AlertNotifier() {
     }, 6000)
   }, [])
 
-  // Supabase Realtime subscriptions
+  // Supabase Realtime — single channel, both listeners registered before subscribe()
   useEffect(() => {
     const supabase = createClient()
 
-    const maintenanceSub = supabase
-      .channel('maintenance_alerts_new')
+    const channel = supabase
+      .channel('alert_notifier')
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'maintenance_alerts' },
@@ -115,10 +115,6 @@ export default function AlertNotifier() {
           })
         }
       )
-      .subscribe()
-
-    const problemSub = supabase
-      .channel('problems_critical_new')
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'problems' },
@@ -136,8 +132,7 @@ export default function AlertNotifier() {
       .subscribe()
 
     return () => {
-      supabase.removeChannel(maintenanceSub)
-      supabase.removeChannel(problemSub)
+      supabase.removeChannel(channel)
     }
   }, [addToast])
 
