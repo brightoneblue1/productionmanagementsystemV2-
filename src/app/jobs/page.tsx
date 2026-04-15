@@ -3,9 +3,11 @@ import { createClient } from '@/lib/supabase/server'
 import { Sun, Sunset, Moon, Users, CalendarSearch } from 'lucide-react'
 import NewShiftForm from './NewShiftForm'
 import ShiftReportPanel from './ShiftReportPanel'
+import ShiftJobsPanel from './ShiftJobsPanel'
 import ShiftDateSearch from './ShiftDateSearch'
 import AppShell from '@/components/ui/AppShell'
 import type { Profile } from '@/types'
+import type { ShiftJob } from './ShiftJobsPanel'
 
 interface Assignment {
   profile_id: string
@@ -35,6 +37,7 @@ interface Shift {
   plants: { name: string } | null
   shift_assignments: Assignment[]
   shift_reports: ShiftReport[]
+  shift_jobs: ShiftJob[]
 }
 
 const SHIFT_ICON = {
@@ -96,6 +99,11 @@ export default async function JobsPage({
         non_conforming_liters, net_production_liters,
         spillage_description, non_conforming_reason,
         outstanding_issues, handover_notes
+      ),
+      shift_jobs (
+        id, title, description, priority, status, due_time, completed_at, notes, created_at,
+        assigned_worker:profiles!shift_jobs_assigned_to_fkey ( full_name, role ),
+        creator:profiles!shift_jobs_created_by_fkey ( full_name )
       )
     `)
     .order('shift_date', { ascending: true })
@@ -212,6 +220,14 @@ export default async function JobsPage({
                         ))}
                       </div>
                     )}
+
+                    <ShiftJobsPanel
+                      shiftId={shift.id}
+                      jobs={shift.shift_jobs ?? []}
+                      profiles={(profiles ?? []).filter(p => p.id !== user.id)}
+                      canManage={canManage}
+                      userId={user.id}
+                    />
 
                     <ShiftReportPanel
                       shiftId={shift.id}
