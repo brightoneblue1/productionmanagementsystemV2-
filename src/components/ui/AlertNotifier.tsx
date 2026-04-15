@@ -99,8 +99,10 @@ export default function AlertNotifier() {
   useEffect(() => {
     const supabase = createClient()
 
+    // Unique name per mount so React Strict Mode's double-invoke never
+    // reuses a channel that the Supabase client still considers subscribed.
     const channel = supabase
-      .channel('alert_notifier')
+      .channel(`alert_notifier_${Date.now()}`)
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'maintenance_alerts' },
