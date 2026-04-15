@@ -52,7 +52,6 @@ function Sidebar({ profile, onClose }: { profile: Profile; onClose?: () => void 
           <p className="text-xs font-medium text-white truncate">{profile.full_name}</p>
           <p className="text-xs text-gray-500 truncate">{ROLE_LABELS[profile.role] ?? profile.role}</p>
         </div>
-        <AlertNotifier />
         <form action="/auth/signout" method="post">
           <button type="submit" className="text-xs text-gray-500 hover:text-white transition-colors" title="Sign out">
             Out
@@ -74,6 +73,8 @@ export default function AppShell({
 
   return (
     <div className="flex h-screen overflow-hidden bg-gray-950">
+      {/* Single alert notifier — mounted once here, never inside Sidebar or mobile bar */}
+      <AlertNotifier />
 
       {/* Desktop sidebar */}
       <div className="hidden lg:flex lg:shrink-0">
@@ -105,7 +106,6 @@ export default function AppShell({
             <Menu size={20} />
           </button>
           <span className="font-bold text-sm text-white flex-1">Worth Oil Processors</span>
-          <AlertNotifier />
         </div>
 
         <main className="flex-1 overflow-y-auto">

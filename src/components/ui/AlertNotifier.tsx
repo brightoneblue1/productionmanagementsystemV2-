@@ -155,18 +155,18 @@ export default function AlertNotifier() {
 
   return (
     <>
-      {/* Mute toggle + badge — rendered inline wherever this component is placed */}
+      {/* Mute toggle — fixed bottom-right, always visible on every screen size */}
       <button
         onClick={toggleMute}
         title={muted ? 'Unmute alerts' : 'Mute alerts'}
-        className="relative text-gray-500 hover:text-white transition-colors p-1 rounded-md hover:bg-gray-800"
+        className="fixed bottom-5 right-5 z-40 relative flex items-center justify-center w-9 h-9 rounded-full bg-gray-800 border border-gray-700 text-gray-400 hover:text-white hover:border-gray-500 shadow-lg transition-colors"
       >
         {muted
-          ? <BellOff size={15} />
-          : <Bell size={15} className={count > 0 ? 'text-orange-400 animate-pulse' : ''} />
+          ? <BellOff size={16} />
+          : <Bell size={16} className={count > 0 ? 'text-orange-400 animate-pulse' : ''} />
         }
         {!muted && count > 0 && (
-          <span className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-red-500 text-[9px] font-bold text-white flex items-center justify-center leading-none">
+          <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-red-500 text-[9px] font-bold text-white flex items-center justify-center leading-none border border-gray-950">
             {count > 9 ? '9+' : count}
           </span>
         )}
