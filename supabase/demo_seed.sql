@@ -143,7 +143,7 @@ insert into work_permits (
 -- 9. PENDING — General inspection P2
 (
   (select id from plants where code = 'P2'),
-  'WP-2026-0009', 'inspection',
+  'WP-2026-0009', 'general',
   'Safety Inspection — P2 Bleaching Section Monthly Audit',
   'Monthly HSE inspection of P2 bleaching section including bleaching earth handling area, filter press, and associated pipework. Inspection to be performed by HSE Officer and Section Supervisor.',
   'P2 Bleaching Section — Full Area',
