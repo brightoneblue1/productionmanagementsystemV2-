@@ -26,6 +26,22 @@ interface WorkPermit {
   plants: { name: string; code: string } | null
   requester: { full_name: string } | null
   approver:  { full_name: string } | null
+  // new physical-form fields
+  contractor_name:  string | null
+  nature_of_job:    string[] | null
+  ppe_head:         string[] | null
+  ppe_face:         string[] | null
+  ppe_hands:        string[] | null
+  ppe_body:         string[] | null
+  ppe_feet:         string[] | null
+  ppe_site:         string[] | null
+  ppe_other:        string | null
+  pat_electrical:   string | null
+  wah_items:        string[] | null
+  wah_inspected:    string | null
+  assignees:        string[] | null
+  team_leader_name: string | null
+  ohs_comment:      string | null
 }
 
 const STATUS_META: Record<string, { label: string; icon: React.ReactNode; card: string; badge: string }> = {
@@ -75,6 +91,10 @@ export default async function PermitsPage({
       id, permit_number, permit_type, title, work_description,
       location, hazards, precautions, ppe_required,
       status, valid_from, valid_until, rejection_reason, created_at,
+      contractor_name, nature_of_job,
+      ppe_head, ppe_face, ppe_hands, ppe_body, ppe_feet, ppe_site, ppe_other,
+      pat_electrical, wah_items, wah_inspected,
+      assignees, team_leader_name, ohs_comment,
       plants ( name, code ),
       requester:profiles!work_permits_requested_by_fkey ( full_name ),
       approver:profiles!work_permits_approved_by_fkey  ( full_name )
@@ -172,9 +192,6 @@ export default async function PermitsPage({
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 flex-wrap mb-1.5">
                           <span className="font-mono text-xs text-gray-500 shrink-0">{permit.permit_number}</span>
-                          <span className="text-xs bg-gray-800 text-gray-300 border border-gray-700 px-2 py-0.5 rounded-full">
-                            {TYPE_LABELS[permit.permit_type] ?? permit.permit_type}
-                          </span>
                           <span className={`flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border ${meta?.badge}`}>
                             {meta?.icon}
                             {meta?.label}
@@ -184,10 +201,22 @@ export default async function PermitsPage({
                         <p className="text-xs text-gray-500 mt-0.5">
                           {permit.plants?.code && <span>{permit.plants.code} · </span>}
                           {permit.location && <span>{permit.location} · </span>}
+                          {permit.contractor_name && <span>{permit.contractor_name} · </span>}
                           {permit.requester?.full_name && <span>Requested by {permit.requester.full_name} · </span>}
                           {fmt(permit.created_at)}
                         </p>
                         <p className="text-sm text-gray-400 mt-2 line-clamp-2">{permit.work_description}</p>
+
+                        {/* Nature of Job tags */}
+                        {permit.nature_of_job && permit.nature_of_job.length > 0 && (
+                          <div className="flex flex-wrap gap-1 mt-2">
+                            {permit.nature_of_job.map((n, i) => (
+                              <span key={i} className="text-xs bg-orange-500/10 text-orange-300 border border-orange-500/25 px-2 py-0.5 rounded-full">
+                                {n}
+                              </span>
+                            ))}
+                          </div>
+                        )}
 
                         {/* Validity */}
                         {(permit.valid_from || permit.valid_until) && (
@@ -196,15 +225,14 @@ export default async function PermitsPage({
                           </p>
                         )}
 
-                        {/* PPE */}
-                        {permit.ppe_required && permit.ppe_required.length > 0 && (
-                          <div className="flex flex-wrap gap-1 mt-2">
-                            {permit.ppe_required.map((p, i) => (
-                              <span key={i} className="text-xs bg-gray-800 text-gray-400 border border-gray-700 px-2 py-0.5 rounded">
-                                {p}
-                              </span>
-                            ))}
-                          </div>
+                        {/* Assignees + Team Leader */}
+                        {(permit.assignees?.length || permit.team_leader_name) && (
+                          <p className="text-xs text-gray-500 mt-1.5">
+                            {permit.team_leader_name && <span>Leader: <span className="text-gray-300">{permit.team_leader_name}</span>{permit.assignees?.length ? ' · ' : ''}</span>}
+                            {permit.assignees && permit.assignees.length > 0 && (
+                              <span>Workers: {permit.assignees.join(', ')}</span>
+                            )}
+                          </p>
                         )}
 
                         {/* Rejection reason */}

@@ -155,21 +155,22 @@ export default function AlertNotifier() {
 
   return (
     <>
-      {/* Mute toggle — fixed bottom-right, always visible on every screen size */}
+      {/* Mute toggle — fixed bottom-right, always visible */}
       <button
         onClick={toggleMute}
         title={muted ? 'Unmute alerts' : 'Mute alerts'}
-        className="fixed bottom-5 right-5 z-40 relative flex items-center justify-center w-9 h-9 rounded-full bg-gray-800 border border-gray-700 text-gray-400 hover:text-white hover:border-gray-500 shadow-lg transition-colors"
+        className={`fixed bottom-5 right-5 z-40 flex items-center gap-2 px-3 py-2 rounded-full border shadow-xl transition-all text-xs font-semibold ${
+          muted
+            ? 'bg-gray-800 border-gray-600 text-gray-400 hover:text-white hover:border-gray-500'
+            : count > 0
+              ? 'bg-orange-500 border-orange-400 text-white hover:bg-orange-400 shadow-orange-500/30'
+              : 'bg-gray-800 border-gray-600 text-gray-300 hover:text-white hover:border-gray-500'
+        }`}
       >
         {muted
-          ? <BellOff size={16} />
-          : <Bell size={16} className={count > 0 ? 'text-orange-400 animate-pulse' : ''} />
+          ? <><BellOff size={14} /> Muted</>
+          : <><Bell size={14} className={count > 0 ? 'animate-pulse' : ''} /> {count > 0 ? `${count} alert${count > 1 ? 's' : ''}` : 'Alerts on'}</>
         }
-        {!muted && count > 0 && (
-          <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-red-500 text-[9px] font-bold text-white flex items-center justify-center leading-none border border-gray-950">
-            {count > 9 ? '9+' : count}
-          </span>
-        )}
       </button>
 
       {/* Toast stack — fixed top-right */}
